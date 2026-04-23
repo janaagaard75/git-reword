@@ -2,7 +2,7 @@
 
 Git command for bulk rewording all the commit messages on the current branch in a single file.
 
-Opens all commits on the current branch (`<base>`..HEAD) in your editor, where `<base>` is the first of `dev`, `main` or `master` that exists locally. Merge commits are skipped. Refuses to run on the base branch itself.
+Opens all commits on the current branch in your editor with the titles and the descriptions separated by the commit SHAs. Save and exit the editor to apply the new commit messages.
 
 Installation: put the `git-reword` script in your PATH.
 
