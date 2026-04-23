@@ -46,8 +46,9 @@ done < <(git rev-list --reverse --no-merges "$BASE..HEAD")
   || die "No commits on $BRANCH beyond $BASE."
 
 WORK=$(mktemp -d -t git-reword.XXXXXX)
-trap 'rm -rf "$WORK"' EXIT
-EDIT="$WORK/commits.txt"
+GIT_DIR=$(git rev-parse --git-dir)
+EDIT="$GIT_DIR/REWORD_EDITMSG.txt"
+trap 'rm -rf "$WORK"; rm -f "$EDIT" "$EDIT.orig"' EXIT
 MSG_DIR="$WORK/msgs"
 mkdir "$MSG_DIR"
 
