@@ -75,9 +75,9 @@ if cmp -s "$EDIT" "$EDIT.orig"; then
 fi
 
 # Parse: Split file into per-SHA message files. Also validates that headers appear in the same order as the original commits.
-awk -v msgdir="$MSG_DIR" -v expected="${COMMITS[*]}" '
+awk -v msgdir="$MSG_DIR" -v expected_shas="${COMMITS[*]}" '
     BEGIN {
-        n = split(expected, exp, " ")
+        n = split(expected_shas, expected_sha, " ")
         i = 0
     }
     /^## [0-9a-f]+ *$/ {
@@ -86,7 +86,7 @@ awk -v msgdir="$MSG_DIR" -v expected="${COMMITS[*]}" '
         if (length(sha) != 40) err("Bad SHA on header line: " sha)
         i++
         if (i > n)         { err("Extra commit " sha " in file.") }
-        if (sha != exp[i]) { err("Commit " sha " out of order (expected " exp[i] ").") }
+        if (sha != expected_sha[i]) { err("Commit " sha " out of order (expected " expected_sha[i] ").") }
         msg = ""
         next
     }
@@ -96,7 +96,7 @@ awk -v msgdir="$MSG_DIR" -v expected="${COMMITS[*]}" '
     { err("Content before first ## header: " $0) }
     END {
         if (sha) flush()
-        if (i < n) err("Missing commit " exp[i+1])
+        if (i < n) err("Missing commit " expected_sha[i+1])
     }
     function flush(   out) {
         sub(/^(\n)+/, "", msg)
