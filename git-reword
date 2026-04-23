@@ -114,8 +114,7 @@ TODO="$WORK/todo"
 for sha in "${COMMITS[@]}"; do
     subject=$(git log -1 --format=%s "$sha")
     printf 'pick %s %s\n' "$sha" "$subject"
-    printf 'exec git commit --amend --cleanup=verbatim --allow-empty -F %q\n' \
-        "$MSG_DIR/$sha"
+    printf 'exec git commit --amend --cleanup=verbatim --allow-empty -F %q > /dev/null\n' "$MSG_DIR/$sha"
 done > "$TODO"
 
 SEQ="$WORK/seq-editor.sh"
@@ -126,4 +125,6 @@ EOF
 chmod +x "$SEQ"
 
 # Run the rebase.
-GIT_SEQUENCE_EDITOR="$SEQ" git rebase -i "$BASE"
+GIT_SEQUENCE_EDITOR="$SEQ" git rebase -i -q "$BASE"
+
+printf 'Successfully reworded refs/heads/%s.\n' "$BRANCH"
