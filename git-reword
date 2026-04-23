@@ -1,0 +1,128 @@
+#!/usr/bin/env bash
+
+# git-reword: bulk-edit all the commit messages on the current branch in a single file.
+# 
+# Opens all commits on the current branch (<base>..HEAD) in your editor, where <base> is the first of dev, main, master that exists locally. Merge commits are skipped. Refuses to run on the base branch itself.
+#
+# Install: put this on your PATH as `git-reword` (chmod +x). Git will then expose it as `git reword`.
+#
+# Usage: git reword
+
+set -euo pipefail
+
+die() { printf 'git-reword: %s\n' "$*" >&2; exit 1; }
+
+[[ $# -eq 0 ]] \
+  || die "Usage: git reword (takes no arguments)."
+
+git rev-parse --git-dir >/dev/null 2>&1 \
+  || die "Not a git repository."
+
+BRANCH=$(git symbolic-ref --short HEAD 2>/dev/null) \
+  || die "Detached HEAD; check out a branch first."
+
+BASE=""
+for branchCandidate in dev main master; do
+  if git rev-parse --verify --quiet "$branchCandidate" >/dev/null; then
+    BASE="$branchCandidate"
+    break
+  fi
+done
+[[ -n "$BASE" ]] \
+  || die "No base branch found. Looked for: dev, main and master."
+
+[[ "$BRANCH" != "$BASE" ]] \
+  || die "On '$BASE'. Switch to another branch first."
+
+git diff --quiet && git diff --cached --quiet \
+    || die "Working tree has uncommitted changes. Commit or stash first."
+
+# Oldest-first list of full SHAs on this branch but not on the base.
+COMMITS=()
+while IFS= read -r line; do
+    COMMITS+=("$line")
+done < <(git rev-list --reverse --no-merges "$BASE..HEAD")
+[[ ${#COMMITS[@]} -gt 0 ]] \
+  || die "No commits on $BRANCH beyond $BASE."
+
+WORK=$(mktemp -d -t git-reword.XXXXXX)
+trap 'rm -rf "$WORK"' EXIT
+EDIT="$WORK/commits.txt"
+MSG_DIR="$WORK/msgs"
+mkdir "$MSG_DIR"
+
+# Build the edit file.
+{
+    echo "# Edit commit messages below, then save and quit."
+    echo "# Each commit is delimited by a line '## <full-sha>'."
+    echo "# Do NOT reorder, add, or remove the '## <sha>' header lines."
+    echo "# Lines above the first header starting with '#' are ignored."
+    echo "#"
+    for sha in "${COMMITS[@]}"; do
+        printf '## %s\n' "$sha"
+        git log -1 --format=%B "$sha"
+        echo
+    done
+} > "$EDIT"
+cp "$EDIT" "$EDIT.orig"
+
+# Open editor.
+EDITOR_CMD=$(git var GIT_EDITOR)
+eval "$EDITOR_CMD \"\$EDIT\""
+
+if cmp -s "$EDIT" "$EDIT.orig"; then
+    die "No changes, aborting."
+fi
+
+# Parse: Split file into per-SHA message files. Also validates that headers appear in the same order as the original commits.
+awk -v msgdir="$MSG_DIR" -v expected="${COMMITS[*]}" '
+    BEGIN {
+        n = split(expected, exp, " ")
+        i = 0
+    }
+    /^## [0-9a-f]{40} *$/ {
+        if (sha) flush()
+        sha = $2
+        i++
+        if (i > n)         { err("Extra commit " sha " in file.") }
+        if (sha != exp[i]) { err("Commit " sha " out of order (expected " exp[i] ").") }
+        msg = ""
+        next
+    }
+    sha { msg = msg $0 "\n"; next }
+    # Pre-header lines: only allow blanks or comments.
+    /^#/ || /^ *$/ { next }
+    { err("Content before first ## header: " $0) }
+    END {
+        if (sha) flush()
+        if (i < n) err("Missing commit " exp[i+1])
+    }
+    function flush(   out) {
+        sub(/^(\n)+/, "", msg)
+        sub(/(\n)+$/, "\n", msg)
+        if (msg == "" || msg == "\n") err("Empty message for " sha)
+        out = msgdir "/" sha
+        printf "%s", msg > out
+        close(out)
+    }
+    function err(m) { print "git-reword: " m > "/dev/stderr"; exit 1 }
+' "$EDIT" || exit 1
+
+# Build a rebase todo: pick + amend-with-new-message for each commit.
+TODO="$WORK/todo"
+for sha in "${COMMITS[@]}"; do
+    subject=$(git log -1 --format=%s "$sha")
+    printf 'pick %s %s\n' "$sha" "$subject"
+    printf 'exec git commit --amend --cleanup=verbatim --allow-empty -F %q\n' \
+        "$MSG_DIR/$sha"
+done > "$TODO"
+
+SEQ="$WORK/seq-editor.sh"
+cat > "$SEQ" <<EOF
+#!/bin/sh
+cp "$TODO" "\$1"
+EOF
+chmod +x "$SEQ"
+
+# Run the rebase.
+GIT_SEQUENCE_EDITOR="$SEQ" git rebase -i "$BASE"
