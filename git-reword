@@ -80,9 +80,10 @@ awk -v msgdir="$MSG_DIR" -v expected="${COMMITS[*]}" '
         n = split(expected, exp, " ")
         i = 0
     }
-    /^## [0-9a-f]{40} *$/ {
+    /^## [0-9a-f]+ *$/ {
         if (sha) flush()
         sha = $2
+        if (length(sha) != 40) err("Bad SHA on header line: " sha)
         i++
         if (i > n)         { err("Extra commit " sha " in file.") }
         if (sha != exp[i]) { err("Commit " sha " out of order (expected " exp[i] ").") }
